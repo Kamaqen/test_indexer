@@ -155,7 +155,9 @@ func listFiles(folderPath string) ([]string, error) {
 
 	var fileNames []string
 	for _, file := range files {
-		fileNames = append(fileNames, file.Name())
+		if !file.IsDir() {
+			fileNames = append(fileNames, file.Name())
+		}
 	}
 	return fileNames, nil
 }
