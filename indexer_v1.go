@@ -45,7 +45,7 @@ const (
 	Credentials = "admin:Complexpass#123"
 )
 
-func main() {
+func main1() {
 	// Setup logging
 	logFile, err := os.Create("app.log")
 	if err != nil {
