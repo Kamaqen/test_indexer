@@ -87,7 +87,6 @@ func indexEmails(rootPath string) error {
 				email, err := processEmail(filepath.Join(rootPath, user, folder, file))
 				if err != nil {
 					log.Printf("Error processing email %s: %v", file, err)
-					// TODO: Continue processing other emails, if needed
 					continue
 				}
 

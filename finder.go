@@ -10,18 +10,16 @@ import (
 
 func main() {
 	const query = `{
-        "search_type": "match",
-        "query":
-        {
-            "term": "DEMTSCHENKO",
-            "start_time": "2021-06-02T14:28:31.894Z",
-            "end_time": "2021-12-02T15:28:31.894Z"
-        },
-        "from": 0,
-        "max_results": 20,
-        "_source": []
-    }`
-	req, err := http.NewRequest("POST", "http://localhost:4080/api/olypmics/_search", strings.NewReader(query))
+    "search_type": "match",
+    "query": {
+        "term": "Westside"
+    },
+    "sort_fields": ["-@timestamp"],
+    "from": 0,
+    "max_results": 1
+}
+`
+	req, err := http.NewRequest("POST", "http://localhost:4080/api/enronJELM/_search", strings.NewReader(query))
 	if err != nil {
 		log.Fatal(err)
 	}
