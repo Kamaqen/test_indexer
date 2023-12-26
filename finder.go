@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func main() {
+func main0() {
 	const query = `{
     "search_type": "match",
     "query": {

@@ -5,15 +5,13 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"strings"
-
+	"fmt"
 	"io"
 	"log"
-
 	"net/http"
 	"os"
 	"path/filepath"
-	// "runtime"
+	"strings"
 )
 
 // Email represents the structure of the email data.
@@ -45,7 +43,7 @@ const (
 	Credentials = "admin:Complexpass#123"
 )
 
-func main1() {
+func main() {
 	// Setup logging
 	logFile, err := os.Create("app.log")
 	if err != nil {
@@ -54,15 +52,11 @@ func main1() {
 	defer logFile.Close()
 	log.SetOutput(io.MultiWriter(os.Stdout, logFile))
 
-	// TODO: add setup code, if needed
-
 	// Perform indexing
 	err = indexEmails("/Users/jorgecapcha/Documents/GO/enron_mail_20110402/maildir")
 	if err != nil {
 		log.Fatalf("Indexing failed: %v", err)
 	}
-
-	// TODO: add cleanup code, if needed
 }
 
 func indexEmails(rootPath string) error {
@@ -70,6 +64,9 @@ func indexEmails(rootPath string) error {
 	if err != nil {
 		return err
 	}
+
+	// Create a buffer to accumulate NDJSON data
+	var ndjsonBuffer bytes.Buffer
 
 	for _, user := range users {
 		folders, err := listFolders(filepath.Join(rootPath, user))
@@ -90,44 +87,60 @@ func indexEmails(rootPath string) error {
 					continue
 				}
 
-				err = indexData(email)
+				// Convert each email to NDJSON format and append to the buffer
+				ndjsonLine, err := json.Marshal(email)
 				if err != nil {
-					log.Printf("Error indexing email %s: %v", file, err)
-					// TODO: Handle indexing error, if needed
+					log.Printf("Error encoding email to JSON: %v", err)
+					continue
 				}
+				ndjsonBuffer.WriteString(string(ndjsonLine) + "\n")
 			}
-
 		}
 	}
 
-	// TODO: further cleanup or finalization, if
+	// Now, ndjsonBuffer contains all emails in NDJSON format
+
+	// Perform the indexing using NDJSON data
+	err = indexNDJSON(ndjsonBuffer.String())
+	if err != nil {
+		log.Printf("Error indexing emails: %v", err)
+		return err
+	}
 
 	return nil
 }
 
-func indexData(data *Email) error {
+func indexNDJSON(ndjsonData string) error {
 	user := "admin"
 	password := "Complexpass#123"
 	auth := user + ":" + password
-	bas64encoded_creds := base64.StdEncoding.EncodeToString([]byte(auth))
+	bas64encodedCreds := base64.StdEncoding.EncodeToString([]byte(auth))
 	index := "enronJELM"
-	zinc_host := "http://localhost:4080"
-	zinc_url := zinc_host + "/api/" + index + "/_doc"
-	jsonData, _ := json.MarshalIndent(data, "", "   ")
-	req, err := http.NewRequest("POST", zinc_url, bytes.NewBuffer(jsonData))
+	zincHost := "http://localhost:4080"
+	zincURL := zincHost + "/api/" + index + "/_bulk"
+
+	// Create a new HTTP request
+	req, err := http.NewRequest("POST", zincURL, strings.NewReader(ndjsonData))
 	if err != nil {
-		log.Fatal("Error reading request. ", err)
+		log.Fatal("Error creating request. ", err)
 	}
+
 	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Basic "+bas64encoded_creds)
+	req.Header.Set("Content-Type", "application/x-ndjson")
+	req.Header.Set("Authorization", "Basic "+bas64encodedCreds)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Safari/537.36")
 
+	// Send the request to Zincsearch
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Non-OK status code: %d", resp.StatusCode)
+	}
+
 	return nil
 }
 
@@ -168,51 +181,71 @@ func processEmail(filePath string) (*Email, error) {
 	}
 	defer file.Close()
 
-	dataLines := bufio.NewScanner(file)
+	// Read the entire email content into a string
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return nil, err
+	}
+
+	// Split the content into headers and body
+	headerBodySplit := strings.SplitN(string(content), "\n\n", 2)
+	if len(headerBodySplit) < 2 {
+		return nil, fmt.Errorf("malformed email, missing body")
+	}
+
+	headers := headerBodySplit[0]
+	body := headerBodySplit[1]
+
+	// Parse headers
+	scanner := bufio.NewScanner(strings.NewReader(headers))
 	emailData := &Email{}
+	for scanner.Scan() {
+		line := scanner.Text()
 
-	for dataLines.Scan() {
-		line := dataLines.Text()
-
-		// Parse each line and populate the Email struct
-		if strings.Contains(line, "Message-ID:") {
-			emailData.Message_ID = line[11:]
-		} else if strings.Contains(line, "Date:") {
-			emailData.Date = line[5:]
-		} else if strings.Contains(line, "From:") {
-			emailData.From = line[6:]
-		} else if strings.Contains(line, "To:") {
-			emailData.To = line[4:]
-		} else if strings.Contains(line, "Subject:") {
-			emailData.Subject = line[8:]
-		} else if strings.Contains(line, "Cc:") {
-			emailData.Cc = line[3:]
-		} else if strings.Contains(line, "Mime-Version:") {
-			emailData.Mime_Version = line[9:]
-		} else if strings.Contains(line, "Content-Type:") {
-			emailData.Content_Type = line[9:]
-		} else if strings.Contains(line, "Content-Transfer-Encoding:") {
-			emailData.Content_Transfer_Encoding = line[9:]
-		} else if strings.Contains(line, "X-From:") {
-			emailData.X_From = line[9:]
-		} else if strings.Contains(line, "X-To:") {
-			emailData.X_To = line[9:]
-		} else if strings.Contains(line, "X-cc:") {
-			emailData.X_cc = line[6:]
-		} else if strings.Contains(line, "X-bcc:") {
-			emailData.X_bcc = line[6:]
-		} else if strings.Contains(line, "X-Folder:") {
-			emailData.X_Folder = line[9:]
-		} else if strings.Contains(line, "X-Origin:") {
-			emailData.X_Origin = line[9:]
-		} else if strings.Contains(line, "X-FileName:") {
-			emailData.X_FileName = line[9:]
-		} else {
-			emailData.Body += line
+		fields := strings.SplitN(line, ":", 2)
+		if len(fields) == 2 {
+			header, value := strings.TrimSpace(fields[0]), strings.TrimSpace(fields[1])
+			switch header {
+			case "Message-ID":
+				emailData.Message_ID = value
+			case "Date":
+				emailData.Date = value
+			case "From":
+				emailData.From = value
+			case "To":
+				emailData.To = value
+			case "Subject":
+				emailData.Subject = value
+			case "Cc":
+				emailData.Cc = value
+			case "Mime-Version":
+				emailData.Mime_Version = value
+			case "Content-Type":
+				emailData.Content_Type = value
+			case "Content-Transfer-Encoding":
+				emailData.Content_Transfer_Encoding = value
+			case "X-From":
+				emailData.X_From = value
+			case "X-To":
+				emailData.X_To = value
+			case "X-cc":
+				emailData.X_cc = value
+			case "X-bcc":
+				emailData.X_bcc = value
+			case "X-Folder":
+				emailData.X_Folder = value
+			case "X-Origin":
+				emailData.X_Origin = value
+			case "X-FileName":
+				emailData.X_FileName = value
+			}
 		}
 	}
 
-	if err := dataLines.Err(); err != nil {
+	// Set the email body
+	emailData.Body = body
+
+	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
 
