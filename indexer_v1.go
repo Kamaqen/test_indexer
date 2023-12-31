@@ -128,6 +128,7 @@ func indexData(data *Email) error {
 		log.Fatal(err)
 	}
 	defer resp.Body.Close()
+	fmt.println(Body)
 	return nil
 }
 
